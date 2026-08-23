@@ -1,33 +1,48 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "F.Chunks v1.0",
+  "title": "F.Chunks v2.0",
   "type": "object",
   "required": ["contract", "schema_version", "artifact_id", "case_id", "producer", "payload"],
   "additionalProperties": false,
   "properties": {
     "contract": {"const": "F.Chunks"},
-    "schema_version": {"const": "1.0"},
+    "schema_version": {"const": "2.0"},
     "artifact_id": {"type": "string", "minLength": 1},
     "case_id": {"type": "string", "minLength": 1},
     "producer": {"type": "string", "minLength": 1},
     "payload": {
       "type": "object",
-      "required": ["chunks"],
+      "required": ["corpus_id", "chunks"],
       "additionalProperties": false,
       "properties": {
+        "corpus_id": {"type": "string", "minLength": 1},
         "chunks": {
           "type": "array",
-          "minItems": 0,
           "items": {
             "type": "object",
-            "required": ["chunk_id", "dx_pair_id", "literature_id", "text", "visual_attributes", "relevance_score"],
+            "required": [
+              "chunk_id", "dx_pair_id", "literature_id", "section_id", "source_idx",
+              "section_idx", "title_list", "literature_title", "section_title",
+              "source_href", "text", "relevance_score"
+            ],
             "additionalProperties": false,
             "properties": {
               "chunk_id": {"type": "string", "minLength": 1},
               "dx_pair_id": {"type": "string", "minLength": 1},
               "literature_id": {"type": "string", "minLength": 1},
+              "section_id": {"type": "string", "minLength": 1},
+              "source_idx": {"type": "integer", "minimum": 0},
+              "section_idx": {"type": "integer", "minimum": 0},
+              "title_list": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {"type": ["string", "null"]}
+              },
+              "literature_title": {"type": "string", "minLength": 1},
+              "section_title": {"type": "string", "minLength": 1},
+              "source_href": {"type": ["string", "null"]},
               "text": {"type": "string", "minLength": 1},
-              "visual_attributes": {"type": "array", "items": {"type": "string"}},
               "relevance_score": {"type": "number", "minimum": 0, "maximum": 1}
             }
           }

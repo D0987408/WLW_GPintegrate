@@ -49,7 +49,10 @@ def main() -> None:
                             "stage": "interest_pattern_extraction",
                             "owner": "person_C",
                             "artifact_contract": "E.ROIs",
+                            "action": "candidate_generated",
+                            "status": "selected",
                             "selected": True,
+                            "reason": "interest_pattern_candidate_generated",
                             "producer": config["component_version"],
                         }
                     ],

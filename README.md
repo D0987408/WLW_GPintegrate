@@ -12,6 +12,7 @@
 
 | 人員 | 此 demo 的 executable | 輸入 | 輸出 |
 |---|---|---|---|
+| 乙 | `prepare_literature` | cleanSections meta list | A |
 | 甲 | `report_decompose` | B report-table manifest | D case index + per-case D |
 | 乙 | `knowledge_retrieval` | A、D | F |
 | 甲 | `query_generation` | D、F | G |
@@ -22,6 +23,8 @@
 執行關係如下：
 
 ```text
+cleanSections_metaList ─> 乙/prepare_literature ─> A (text-only literature hierarchy)
+
 B Excel/table manifests ─> 甲/report_decompose ─> D case index
                                                    ├─> case-001 D (metadata-shaped case)
                                                    ├─> case-002 D (metadata-shaped case)
@@ -47,12 +50,31 @@ payload.case_list[0]
     └── roi_list[]
         ├── level0_info / main_info      # E 起加入
         ├── visualAttrs / visualAttrs_info # H 起填入
-        └── selection_history[]          # 丙、丁、戊逐階段追加
+        ├── pseudo_DxPair                # I；只有真正經 CLEE 評估的 ROI 才有
+        └── selection_history[]          # action/status/reason；丙、丁、戊逐階段追加
 ```
 
 注意 artifact 中沒有 base64 image；WSI 由 `stains[].filepath` 指向，ROI crop 可由
 `level0_info`/`main_info` 重建，因此大型 WSI 不必在元件間複製。inference 模式的 ROI
 `DxPair` 固定為 `null`，ROI-level GT 只應在 `ground_truth` 或 `evaluation` 資料中出現。
+
+A/F schema version 2.0 使用 `cleanSections_metaList_2603201640.json` 的階層作為文字文獻骨架：
+
+```text
+A.payload
+├── corpus                              # source filename/path/SHA-256
+└── literature_list[]                   # 保留原始 122 個 nodes 與順序
+    ├── literature_id + source_idx
+    ├── level + title_list[4] + title + href
+    └── sections[]
+        └── section_id + section_idx + title + text
+
+F.payload.chunks[]                      # retrieval 以 section 為最小單位
+└── dx_pair_id + literature_id + section_id + title path + href + text + score
+```
+
+A 是純文字 contract，不包含來源的 `images`。來源中的字串 `"None"` 會原樣保存在 A，方便和原檔
+逐段檢查；乙建立 retrieval candidates 時會跳過大小寫不敏感的 `"None"`，不把它當 evidence。
 
 ## 1. 不用 Docker，先看一次完整流程
 
@@ -91,6 +113,18 @@ cases/
 這些中間檔就是圖上的箭頭；直接打開它們會比只看架構文字更有感。
 
 ## 2. 單獨把一個元件當 black box 執行
+
+先把完整 cleanSections source 包成 A v2：
+
+```bash
+python3 -m components.person_b.prepare_literature \
+  --source ../cleanSections_metaList_2603201640.json \
+  --output /tmp/A_literature.json \
+  --config integration/configs/prepare_literature.json
+```
+
+adapter 不修改來源，只加入 corpus provenance、stable literature/section IDs 和 contract envelope。
+pipeline 的 `--literature` 接受其輸出的 A artifact；預設則使用相同骨架的縮小 fixture。
 
 例如甲的 Report Decompose：
 
@@ -148,9 +182,26 @@ python3 -m components.person_d.visual_filter \
   --config integration/configs/visual_filter.json
 ```
 
+H 不做 top-k：每張 reference WSI ROI 都獨立接受 VisualAttr legality 判定。`status=selected`
+代表通過且可進 CLEE；`rejected` 是已評估但不合法；`skipped` 則用於 unmapped criteria 或不屬於
+該 DxPair reference WSI。所有 ROI 都保留在 H。
+
+戊是薄 adapter。預設 `backend.mode=fixture` 只供 contract/E2E 測試，並在 I provenance 與每個
+CLEE event 明示 `backend=fixture`。正式模式改成 `external_command` 後，adapter 會：
+
+1. 取 WLW whitelist 與 checkpoint `active_DxItem_list/active_DxResult_dict` 的交集。
+2. 只把 H `selected` 的 ROI 送給純推論 CLEE。
+3. 驗證回傳 ROI 集合並把完整 layered `pseudo_DxPair` 合併回原 H shell。
+4. 為所有 ROI 追加 CLEE `selected/rejected/skipped` event；H 未通過者標為
+   `upstream_visual_filter_rejected`，不執行 model forward。
+
+`max_roi_dxitem_inputs_per_forward` 只控制 hierarchical inference 的單次 forward chunk；它不會
+抽樣或丟棄 ROI。CLEE classification thresholds 與 case-importance threshold 皆由同 epoch、
+`source_split=valid` 的 threshold bundle 讀取。
+
 ## 3. Contract test
 
-`contracts/schemas/` 是 A、B、D～I 的 canonical JSON Schema；D/E/G/H/I 共用
+`contracts/schemas/` 是 A、B、D～I 的 canonical JSON Schema；A/F 與 D/E/G/H/I 使用 v2.0，後五者共用
 `metadata_case_payload.schema.json`。runtime 會在讀取輸入及寫出輸出時
 各驗一次，fail fast；測試再驗證 canonical fixtures、整條 pipeline 與一個刻意破壞的 artifact：
 

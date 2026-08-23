@@ -56,7 +56,7 @@ def _mock_visual_attrs(
 
 def _evaluate(
     observed: dict[str, Any], criteria: dict[str, Any]
-) -> tuple[float, bool, bool, list[str]]:
+) -> tuple[float, bool, bool, list[str], list[str]]:
     required_true: list[tuple[str, str, str]] = []
     forbidden: list[tuple[str, str, str]] = []
     likely_by_feature: dict[tuple[str, str], set[str]] = {}
@@ -79,6 +79,16 @@ def _evaluate(
     }
     must_true_passed = all(item in present for item in required_true)
     must_false_passed = not any(item in present for item in forbidden)
+    failed = [
+        f"missing:{category}.{feature}={value}"
+        for category, feature, value in required_true
+        if (category, feature, value) not in present
+    ]
+    failed.extend(
+        f"forbidden:{category}.{feature}={value}"
+        for category, feature, value in forbidden
+        if (category, feature, value) in present
+    )
     matched = [
         f"{category}.{feature}={value}"
         for (category, feature), candidates in likely_by_feature.items()
@@ -92,7 +102,13 @@ def _evaluate(
     )
     legal = must_true_passed and must_false_passed
     score = (0.6 if legal else 0.0) + 0.4 * likely_ratio
-    return round(score, 3), must_true_passed, must_false_passed, sorted(matched)
+    return (
+        round(score, 3),
+        must_true_passed,
+        must_false_passed,
+        sorted(matched),
+        sorted(failed),
+    )
 
 
 def _visual_attrs_info(observed: dict[str, Any]) -> dict[str, Any]:
@@ -152,49 +168,73 @@ def main() -> None:
                     "stage": "visual_attributes_matching_filter",
                     "owner": "person_D",
                     "artifact_contract": "H.MatchedROIs",
+                    "action": "legality_evaluated",
+                    "status": "skipped",
                     "selected": False,
+                    "reason": "no_visual_attribute_query",
                     "producer": config["component_version"],
                 }
             )
 
     for record, query in queries:
-        assessments: list[tuple[float, str]] = []
-        details: dict[str, tuple[float, bool, bool, list[str]]] = {}
+        details: dict[str, tuple[float, bool, bool, list[str], list[str]]] = {}
         references = set(record["referenceWSI"])
         if query["criteria_status"] == "mapped":
             criteria = query["diagnosticCriteria"]
             for stain, roi in roi_entries:
-                if stain["stain_id"] not in references:
+                if references and stain["stain_id"] not in references:
                     continue
                 result = _evaluate(roi["visualAttrs"], criteria)
                 details[roi["roi_id"]] = result
-                score, must_true, must_false, _ = result
-                if must_true and must_false and score >= config["minimum_score"]:
-                    assessments.append((score, roi["roi_id"]))
-        assessments.sort(key=lambda item: (-item[0], item[1]))
-        selected_ids = {
-            roi_id for _, roi_id in assessments[: config["top_k_per_query"]]
-        }
 
         for stain, roi in roi_entries:
+            in_reference = not references or stain["stain_id"] in references
             event: dict[str, Any] = {
                 "stage": "visual_attributes_matching_filter",
                 "owner": "person_D",
                 "artifact_contract": "H.MatchedROIs",
-                "selected": roi["roi_id"] in selected_ids,
+                "action": "legality_evaluated",
+                "status": "skipped",
+                "selected": False,
+                "reason": (
+                    "diagnostic_criteria_unmapped"
+                    if query["criteria_status"] == "unmapped"
+                    else "outside_reference_wsi"
+                    if not in_reference
+                    else "visual_attribute_evaluation_unavailable"
+                ),
                 "producer": config["component_version"],
                 "query_id": query["query_id"],
                 "dx_pair_id": query["dx_pair_id"],
                 "criteria_status": query["criteria_status"],
             }
-            if stain["stain_id"] in references and roi["roi_id"] in details:
-                score, must_true, must_false, matched = details[roi["roi_id"]]
+            if in_reference and roi["roi_id"] in details:
+                score, must_true, must_false, matched, failed = details[roi["roi_id"]]
+                selected = (
+                    must_true
+                    and must_false
+                    and score >= config["minimum_score"]
+                )
+                if selected:
+                    reason = "visual_attribute_conditions_met"
+                elif not must_true:
+                    reason = "required_visual_attributes_missing"
+                elif not must_false:
+                    reason = "forbidden_visual_attributes_present"
+                else:
+                    reason = "visual_attribute_score_below_threshold"
                 event.update(
                     {
+                        "status": "selected" if selected else "rejected",
+                        "selected": selected,
+                        "reason": reason,
                         "score": score,
+                        "threshold": config["minimum_score"],
+                        "comparison": ">=",
                         "must_true_passed": must_true,
                         "must_false_passed": must_false,
                         "matched_attributes": matched,
+                        "failed_attributes": failed,
                     }
                 )
             roi["selection_history"].append(event)

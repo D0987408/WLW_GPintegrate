@@ -10,8 +10,24 @@ x-common: &common
     - ../../../lab_19/reference/candidateReference.json:/references/candidateReference.json:ro
     - ../../Histologic_Type_mappingTable.json:/references/Histologic_Type_mappingTable.json:ro
     - ../../[typeLevel]visualAttrs_v1.2.1_2603241656.json:/references/[typeLevel]visualAttrs_v1.2.1_2603241656.json:ro
+    - ../../cleanSections_metaList_2603201640.json:/literature-source/cleanSections_metaList_2603201640.json:ro
 
 services:
+  literature-prepare:
+    <<: *common
+    image: wlw/person-b:demo
+    build:
+      context: ..
+      dockerfile: components/person_b/Dockerfile
+    entrypoint: ["python", "-m", "components.person_b.prepare_literature"]
+    command:
+      - --source
+      - /literature-source/cleanSections_metaList_2603201640.json
+      - --output
+      - /artifacts/A_literature.json
+      - --config
+      - /configs/prepare_literature.json
+
   report-decompose:
     <<: *common
     image: wlw/person-a:demo
@@ -50,11 +66,13 @@ services:
       context: ..
       dockerfile: components/person_b/Dockerfile
     depends_on:
+      literature-prepare:
+        condition: service_completed_successfully
       report-decompose:
         condition: service_completed_successfully
     command:
       - --input
-      - /inputs/A_literature.json
+      - /artifacts/A_literature.json
       - --input
       - /artifacts/cases/case-001/D_dx_pairs.json
       - --output

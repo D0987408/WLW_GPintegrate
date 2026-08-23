@@ -11,7 +11,7 @@ D.DxPairs + F.Chunks ──> query_generation ──> G.VisualAttributeQueries
 ```
 
 你只需要保證：任何符合 B v1.0 的輸入都能產生合法 D index 與 per-case D v2.0；D v2.0 與
-F v1.0 能產生 G v2.0。integration layer 不應 import 你的內部 class。
+F v2.0 能產生 G v2.0。integration layer 不應 import 你的內部 class。
 
 ## 需要準備的東西與放置位置
 

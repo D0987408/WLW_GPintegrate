@@ -54,6 +54,7 @@ class PipelineSmokeTest(unittest.TestCase):
                     for contract, filename in {
                         "D.DxPairs": "D_dx_pairs.json",
                         "E.ROIs": "E_rois.json",
+                        "F.Chunks": "F_chunks.json",
                         "G.VisualAttributeQueries": "G_queries.json",
                         "H.MatchedROIs": "H_matches.json",
                         "I.CLEESelectedROIs": "I_selected_rois.json",
@@ -63,11 +64,15 @@ class PipelineSmokeTest(unittest.TestCase):
                     validate_artifact(artifact, contract)
                     self.assertEqual("2.0", artifact["schema_version"])
                     self.assertEqual(case_id, artifact["case_id"])
-                    self.assertEqual(case_id, artifact["payload"]["case_list"][0]["case_id"])
+                    if "case_list" in artifact["payload"]:
+                        self.assertEqual(
+                            case_id, artifact["payload"]["case_list"][0]["case_id"]
+                        )
 
-                d, e, g, h, result = (
+                d, e, f, g, h, result = (
                     files["D.DxPairs"],
                     files["E.ROIs"],
+                    files["F.Chunks"],
                     files["G.VisualAttributeQueries"],
                     files["H.MatchedROIs"],
                     files["I.CLEESelectedROIs"],
@@ -79,6 +84,10 @@ class PipelineSmokeTest(unittest.TestCase):
                     {stain["filepath"] for stain in iter_stains(e["payload"])},
                 )
                 self.assertEqual(len(expected_paths) * 2, len(list(iter_rois(e["payload"]))))
+                for chunk in f["payload"]["chunks"]:
+                    self.assertTrue(chunk["section_id"])
+                    self.assertEqual(4, len(chunk["title_list"]))
+                    self.assertNotEqual("none", chunk["text"].strip().casefold())
 
                 for _, roi in iter_rois(e["payload"]):
                     self.assertIsNone(roi["DxPair"])
@@ -86,6 +95,12 @@ class PipelineSmokeTest(unittest.TestCase):
                     self.assertEqual(
                         ["interest_pattern_extraction"],
                         [event["stage"] for event in roi["selection_history"]],
+                    )
+                    event = roi["selection_history"][0]
+                    self.assertEqual("candidate_generated", event["action"])
+                    self.assertEqual("selected", event["status"])
+                    self.assertEqual(
+                        "interest_pattern_candidate_generated", event["reason"]
                     )
                 for _, roi in iter_rois(h["payload"]):
                     self.assertIsNone(roi["DxPair"])
@@ -95,11 +110,50 @@ class PipelineSmokeTest(unittest.TestCase):
                         "visual_attributes_matching_filter",
                         [event["stage"] for event in roi["selection_history"]],
                     )
+                    for event in roi["selection_history"]:
+                        self.assertEqual(
+                            event["selected"], event["status"] == "selected"
+                        )
+                        self.assertTrue(event["action"])
+                        self.assertTrue(event["reason"])
+                        if event["stage"] == "visual_attributes_matching_filter":
+                            self.assertNotIn("rank", event)
+
+                h_rois = {roi["roi_id"]: roi for _, roi in iter_rois(h["payload"])}
                 for _, roi in iter_rois(result["payload"]):
                     stages = [event["stage"] for event in roi["selection_history"]]
                     self.assertIn("interest_pattern_extraction", stages)
                     self.assertIn("visual_attributes_matching_filter", stages)
                     self.assertIn("clee", stages)
+                    h_history = h_rois[roi["roi_id"]]["selection_history"]
+                    self.assertEqual(
+                        h_history,
+                        roi["selection_history"][: len(h_history)],
+                    )
+                    clee_events = [
+                        event
+                        for event in roi["selection_history"]
+                        if event["stage"] == "clee"
+                    ]
+                    self.assertEqual(1, len(clee_events))
+                    clee_event = clee_events[0]
+                    self.assertEqual(
+                        clee_event["selected"],
+                        clee_event["status"] == "selected",
+                    )
+                    if clee_event["action"] == "evidence_evaluated":
+                        self.assertIn("pseudo_DxPair", roi)
+                        prediction = roi["pseudo_DxPair"]["finalResult"][
+                            "Histologic_Type"
+                        ]
+                        self.assertEqual(
+                            clee_event["selected"], prediction["assigned_as_ref"]
+                        )
+                        self.assertEqual(clee_event["score"], prediction["importance"])
+                        self.assertEqual(">=", clee_event["comparison"])
+                    else:
+                        self.assertEqual("skipped", clee_event["status"])
+                        self.assertNotIn("pseudo_DxPair", roi)
 
                 result_items = dx_items(result["payload"])
                 for stain, roi in iter_rois(result["payload"]):
@@ -111,6 +165,25 @@ class PipelineSmokeTest(unittest.TestCase):
                                 if item["dx_pair_id"] == event["dx_pair_id"]
                             )
                             self.assertIn(stain["stain_id"], record["referenceWSI"])
+
+                provenance = result["payload"]["reference_versions"]["clee_inference"]
+                clee_events = [
+                    event
+                    for _, roi in iter_rois(result["payload"])
+                    for event in roi["selection_history"]
+                    if event["stage"] == "clee"
+                ]
+                self.assertEqual("fixture", provenance["backend"])
+                self.assertEqual(["Histologic_Type"], provenance["effective_dx_items"])
+                self.assertIn("Microcalcification", provenance["checkpoint_active_dx_items"])
+                self.assertEqual(
+                    len([e for e in clee_events if e["action"] == "evidence_evaluated"]),
+                    provenance["evaluated_roi_count"],
+                )
+                self.assertEqual(
+                    len([e for e in clee_events if e["status"] == "skipped"]),
+                    provenance["skipped_roi_count"],
+                )
 
             case_one_dir = artifacts / "cases" / "case-001"
             case_one_d = json.loads(
@@ -154,6 +227,80 @@ class PipelineSmokeTest(unittest.TestCase):
                     if event["stage"] in {"visual_attributes_matching_filter", "clee"}
                 )
             )
+            for _, roi in iter_rois(case_two_i["payload"]):
+                clee_event = next(
+                    event
+                    for event in roi["selection_history"]
+                    if event["stage"] == "clee"
+                )
+                self.assertEqual("skipped", clee_event["status"])
+                self.assertEqual("unsupported_dx_result", clee_event["reason"])
+                self.assertNotIn("pseudo_DxPair", roi)
+
+            visual_config = json.loads(
+                (ROOT / "integration" / "configs" / "visual_filter.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotIn("top_k_per_query", visual_config)
+
+            case_one_h = json.loads(
+                (case_one_dir / "H_matches.json").read_text(encoding="utf-8")
+            )
+            for _, roi in iter_rois(case_one_h["payload"]):
+                for event in roi["selection_history"]:
+                    if (
+                        event["stage"] == "visual_attributes_matching_filter"
+                        and event["status"] == "selected"
+                    ):
+                        event["status"] = "rejected"
+                        event["selected"] = False
+                        event["reason"] = "visual_attribute_score_below_threshold"
+                        event["score"] = 0.0
+            empty_h_path = artifacts / "case-001-H-none-selected.json"
+            empty_i_path = artifacts / "case-001-I-none-selected.json"
+            empty_h_path.write_text(
+                json.dumps(case_one_h, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "components.person_e.clee",
+                    "--input",
+                    str(case_one_dir / "D_dx_pairs.json"),
+                    "--input",
+                    str(empty_h_path),
+                    "--output",
+                    str(empty_i_path),
+                    "--config",
+                    str(ROOT / "integration" / "configs" / "clee.json"),
+                ],
+                cwd=ROOT,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            empty_i = json.loads(empty_i_path.read_text(encoding="utf-8"))
+            validate_artifact(empty_i, "I.CLEESelectedROIs")
+            self.assertEqual(
+                ["skipped_no_eligible_rois"],
+                empty_i["payload"]["reference_versions"]["clee_inference"][
+                    "execution_statuses"
+                ],
+            )
+            for _, roi in iter_rois(empty_i["payload"]):
+                clee_event = next(
+                    event
+                    for event in roi["selection_history"]
+                    if event["stage"] == "clee"
+                )
+                self.assertEqual("skipped", clee_event["status"])
+                self.assertEqual(
+                    "upstream_visual_filter_rejected", clee_event["reason"]
+                )
+                self.assertNotIn("pseudo_DxPair", roi)
 
 
 if __name__ == "__main__":

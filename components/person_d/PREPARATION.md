@@ -20,7 +20,7 @@ G.VisualAttributeQueries ────────────────┘
 | Extraction/matching 實作 | `components/person_d/visual_filter.py` | 讀 E、G，寫 H；不得依靠丙/甲的 Python object |
 | Python dependencies | `components/person_d/requirements.txt` | torch、vision、model client 等直接依賴與版本 |
 | OS/CUDA dependencies | `components/person_d/Dockerfile` | CUDA base、image codec、OpenSlide 等 |
-| 預設 config | `components/person_d/configs/default.json` | threshold、top-k、batch size、model path/revision |
+| 預設 config | `components/person_d/configs/default.json` | legality threshold、batch size、model path/revision；H 不做 top-k |
 | Runtime/model manifest | `components/person_d/component.yaml` | GPU/VRAM、CPU/RAM、timeout、checkpoint hash |
 | E input example | `integration/artifacts-local/cases/case-001/E_rois.json` | 由丙產生，需確認座標語意 |
 | G input example | `integration/artifacts-local/cases/case-001/G_queries.json` | 由甲產生，需確認 attribute vocabulary |
@@ -42,8 +42,9 @@ G.VisualAttributeQueries ────────────────┘
 
 - G 的 `candidateReference` 是 controlled vocabulary，`diagnosticCriteria.visualAttrs` 是條件。
 - `Must_True`/`Must_False` 先做合法性篩選，再以 High/Low conditions 計分。
-- `criteria_status=unmapped` 不得自行猜條件，應留下 selected=false。
+- `criteria_status=unmapped` 不得自行猜條件，應留下 `status=skipped` 與原因。
 - score 範圍為 0～1、越大越匹配；每個決策寫入 ROI `selection_history[]`。
+- 每張 reference WSI ROI 獨立判定；所有通過 threshold 的 ROI 都是 selected，不排名、不取 top-k。
 
 ## H.MatchedROIs 的 provenance
 
@@ -61,8 +62,9 @@ G.VisualAttributeQueries ────────────────┘
 
 ## 空結果與錯誤要分開
 
-「沒有 ROI 達 threshold」是合法科學結果：H 仍保留所有 E ROI，但丁階段事件皆為
-`selected=false`；「WSI 打不開」或「模型載入失敗」則是執行錯誤，應 non-zero exit。
+「沒有 ROI 達 threshold」是合法科學結果：H 仍保留所有 E ROI，已評估者標為
+`status=rejected`；unmapped/outside-reference 標為 `status=skipped`。兩者都保留 reason，且
+`selected=false`。「WSI 打不開」或「模型載入失敗」則是執行錯誤，應 non-zero exit。
 
 ## 交付前自己跑
 

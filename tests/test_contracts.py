@@ -32,6 +32,13 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "table_path"):
             validate_artifact(broken)
 
+    def test_text_only_literature_rejects_image_fields(self) -> None:
+        artifact = json.loads((INPUTS / "A_literature.json").read_text(encoding="utf-8"))
+        broken = copy.deepcopy(artifact)
+        broken["payload"]["literature_list"][1]["images"] = [{"img_idx": 1}]
+        with self.assertRaisesRegex(ContractError, "images"):
+            validate_artifact(broken)
+
 
 if __name__ == "__main__":
     unittest.main()

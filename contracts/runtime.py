@@ -192,6 +192,104 @@ def validate_artifact(artifact: dict[str, Any], expected_contract: str | None = 
         raise ContractError(f"$: unknown contract {contract!r}") from exc
     schema = json.loads((SCHEMA_DIR / schema_file).read_text(encoding="utf-8"))
     _validate(artifact, schema, root_schema=schema)
+    _validate_selection_semantics(artifact)
+
+
+def _validate_selection_semantics(artifact: dict[str, Any]) -> None:
+    """Validate cross-field ROI event invariants not expressed by the demo validator."""
+
+    payload = artifact.get("payload", {})
+    cases = payload.get("case_list")
+    if not isinstance(cases, list):
+        return
+
+    for case in cases:
+        for block in case.get("tissue_blocks", []):
+            for stain in block.get("stains", []):
+                for roi in stain.get("roi_list", []):
+                    events = roi.get("selection_history", [])
+                    for event in events:
+                        status = event["status"]
+                        if event["selected"] is not (status == "selected"):
+                            raise ContractError(
+                                f"ROI {roi.get('roi_id')}: event selected/status mismatch"
+                            )
+                        if event["stage"] == "clee":
+                            expected_action = (
+                                "inference_skipped"
+                                if status == "skipped"
+                                else "evidence_evaluated"
+                            )
+                            if event["action"] != expected_action:
+                                raise ContractError(
+                                    f"ROI {roi.get('roi_id')}: CLEE status {status!r} "
+                                    f"requires action {expected_action!r}"
+                                )
+
+                    visual_events = [
+                        event
+                        for event in events
+                        if event["stage"] == "visual_attributes_matching_filter"
+                    ]
+                    if artifact["contract"] in {
+                        "H.MatchedROIs",
+                        "I.CLEESelectedROIs",
+                    }:
+                        if not visual_events:
+                            raise ContractError(
+                                f"ROI {roi.get('roi_id')}: H/I requires a visual "
+                                "attribute matching event"
+                            )
+                        if any(
+                            event["action"] != "legality_evaluated"
+                            for event in visual_events
+                        ):
+                            raise ContractError(
+                                f"ROI {roi.get('roi_id')}: visual filter events must "
+                                "use action 'legality_evaluated'"
+                            )
+
+                    if artifact["contract"] == "I.CLEESelectedROIs":
+                        clee_events = [
+                            event for event in events if event["stage"] == "clee"
+                        ]
+                        if not clee_events:
+                            raise ContractError(
+                                f"ROI {roi.get('roi_id')}: I requires a CLEE event"
+                            )
+                        evaluated = any(
+                            event["action"] == "evidence_evaluated"
+                            for event in clee_events
+                        )
+                        if evaluated != ("pseudo_DxPair" in roi):
+                            raise ContractError(
+                                f"ROI {roi.get('roi_id')}: pseudo_DxPair must exist "
+                                "exactly when CLEE evaluated the ROI"
+                            )
+                        for event in clee_events:
+                            upstream_selected = any(
+                                visual_event.get("dx_pair_id")
+                                == event.get("dx_pair_id")
+                                and visual_event["status"] == "selected"
+                                for visual_event in visual_events
+                            )
+                            if (
+                                event["action"] == "evidence_evaluated"
+                                and not upstream_selected
+                            ):
+                                raise ContractError(
+                                    f"ROI {roi.get('roi_id')}: CLEE evaluation requires "
+                                    "an H selected event for the same dx_pair_id"
+                                )
+                            if (
+                                event["reason"]
+                                == "upstream_visual_filter_rejected"
+                                and upstream_selected
+                            ):
+                                raise ContractError(
+                                    f"ROI {roi.get('roi_id')}: CLEE cannot claim an "
+                                    "upstream rejection when H selected the ROI"
+                                )
 
 
 def load_inputs(paths: Iterable[str | Path], required_contracts: Iterable[str]) -> dict[str, dict[str, Any]]:
