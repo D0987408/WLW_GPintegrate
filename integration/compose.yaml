@@ -6,6 +6,10 @@ x-common: &common
     - ./fixtures/input:/inputs:ro
     - ./configs:/configs:ro
     - ./artifacts:/artifacts
+    - ../../../lab_19/DxStructuredCandidates_integrated.json:/references/DxStructuredCandidates_integrated.json:ro
+    - ../../../lab_19/reference/candidateReference.json:/references/candidateReference.json:ro
+    - ../../Histologic_Type_mappingTable.json:/references/Histologic_Type_mappingTable.json:ro
+    - ../../[typeLevel]visualAttrs_v1.2.1_2603241656.json:/references/[typeLevel]visualAttrs_v1.2.1_2603241656.json:ro
 
 services:
   report-decompose:
@@ -16,9 +20,9 @@ services:
       dockerfile: components/person_a/Dockerfile
     command:
       - --input
-      - /inputs/B_report.json
+      - /inputs/B_report_tables.json
       - --output
-      - /artifacts/D_dx_pairs.json
+      - /artifacts/D_dx_pairs_index.json
       - --config
       - /configs/report_decompose.json
 
@@ -28,11 +32,14 @@ services:
     build:
       context: ..
       dockerfile: components/person_c/Dockerfile
+    depends_on:
+      report-decompose:
+        condition: service_completed_successfully
     command:
       - --input
-      - /inputs/C_wsi.json
+      - /artifacts/cases/case-001/D_dx_pairs.json
       - --output
-      - /artifacts/E_rois.json
+      - /artifacts/cases/case-001/E_rois.json
       - --config
       - /configs/interest_pattern.json
 
@@ -49,9 +56,9 @@ services:
       - --input
       - /inputs/A_literature.json
       - --input
-      - /artifacts/D_dx_pairs.json
+      - /artifacts/cases/case-001/D_dx_pairs.json
       - --output
-      - /artifacts/F_chunks.json
+      - /artifacts/cases/case-001/F_chunks.json
       - --config
       - /configs/knowledge_retrieval.json
 
@@ -67,9 +74,11 @@ services:
         condition: service_completed_successfully
     command:
       - --input
-      - /artifacts/F_chunks.json
+      - /artifacts/cases/case-001/D_dx_pairs.json
+      - --input
+      - /artifacts/cases/case-001/F_chunks.json
       - --output
-      - /artifacts/G_queries.json
+      - /artifacts/cases/case-001/G_queries.json
       - --config
       - /configs/query_generation.json
 
@@ -86,11 +95,11 @@ services:
         condition: service_completed_successfully
     command:
       - --input
-      - /artifacts/E_rois.json
+      - /artifacts/cases/case-001/E_rois.json
       - --input
-      - /artifacts/G_queries.json
+      - /artifacts/cases/case-001/G_queries.json
       - --output
-      - /artifacts/H_matches.json
+      - /artifacts/cases/case-001/H_matches.json
       - --config
       - /configs/visual_filter.json
 
@@ -107,10 +116,10 @@ services:
         condition: service_completed_successfully
     command:
       - --input
-      - /artifacts/D_dx_pairs.json
+      - /artifacts/cases/case-001/D_dx_pairs.json
       - --input
-      - /artifacts/H_matches.json
+      - /artifacts/cases/case-001/H_matches.json
       - --output
-      - /artifacts/I_selected_rois.json
+      - /artifacts/cases/case-001/I_selected_rois.json
       - --config
       - /configs/clee.json

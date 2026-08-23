@@ -24,8 +24,8 @@ D.DxPairs ───────────────────────�
 | Runtime 描述 | `components/person_b/component.yaml` | 記錄 Python、CPU/RAM、是否需要 GPU、index/model revision |
 | Container recipe | `components/person_b/Dockerfile` | 安裝 client/library；不要把整個文獻庫 COPY 進 image |
 | A canonical input | `integration/fixtures/input/A_literature.json` | 小型、固定、可提交的假資料 |
-| D canonical input | pipeline 產生的 `integration/artifacts-local/D_dx_pairs.json` | 用來驗證你接受甲的 D |
-| F expected output | `integration/artifacts-local/F_chunks.json` | 每段 chunk 要保留 literature 與 dx provenance |
+| D canonical input | pipeline 產生的 `integration/artifacts-local/cases/case-001/D_dx_pairs.json` | 用來驗證你接受甲的 per-case D |
+| F expected output | `integration/artifacts-local/cases/case-001/F_chunks.json` | 每段 chunk 要保留 literature 與 dx provenance |
 | A/F schemas | `contracts/schemas/A_*.json`、`F_*.json` | contract 變更先走中央審核與版本化 |
 
 ## Knowledge base 本體放哪裡
@@ -80,7 +80,7 @@ python3 pipeline/run_pipeline.py
 
 python3 -m components.person_b.knowledge_retrieval \
   --input integration/fixtures/input/A_literature.json \
-  --input integration/artifacts-local/D_dx_pairs.json \
+  --input integration/artifacts-local/cases/case-001/D_dx_pairs.json \
   --output /tmp/F_chunks.json \
   --config components/person_b/configs/default.json
 
@@ -94,4 +94,3 @@ python3 -m unittest discover -s tests -v
 - knowledge base/model revision 被記錄，不依賴「目前 server 上剛好那一版」。
 - 無結果、index 不存在、credential 缺失時有明確錯誤與 non-zero exit code。
 - Docker image 不包含 corpus、index、credential 或大型 checkpoint。
-

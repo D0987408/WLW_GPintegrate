@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contracts.metadata import dx_items, single_case
 from contracts.runtime import cli_parser, load_config, load_inputs, write_artifact
 
 
@@ -10,11 +11,12 @@ def main() -> None:
     dx_pairs = inputs["D.DxPairs"]
     config = load_config(args.config)
     case_id = dx_pairs["case_id"]
+    single_case(dx_pairs)
 
     chunks = []
     chunk_index = 1
-    for pair in dx_pairs["payload"]["dx_pairs"]:
-        haystack = f"{pair['dx_item']} {pair['dx_result']}".lower()
+    for dx_item, pair in dx_items(dx_pairs["payload"]).items():
+        haystack = f"{dx_item} {pair['DxResultTxt']}".lower()
         ranked = []
         for document in literature["payload"]["documents"]:
             hits = sum(keyword.lower() in haystack for keyword in document["keywords"])
@@ -47,4 +49,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

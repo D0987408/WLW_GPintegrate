@@ -17,7 +17,7 @@
       "properties": {
         "chunks": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "items": {
             "type": "object",
             "required": ["chunk_id", "dx_pair_id", "literature_id", "text", "visual_attributes", "relevance_score"],
@@ -36,4 +36,3 @@
     }
   }
 }
-

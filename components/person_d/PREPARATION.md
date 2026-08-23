@@ -22,9 +22,9 @@ G.VisualAttributeQueries ────────────────┘
 | OS/CUDA dependencies | `components/person_d/Dockerfile` | CUDA base、image codec、OpenSlide 等 |
 | 預設 config | `components/person_d/configs/default.json` | threshold、top-k、batch size、model path/revision |
 | Runtime/model manifest | `components/person_d/component.yaml` | GPU/VRAM、CPU/RAM、timeout、checkpoint hash |
-| E input example | `integration/artifacts-local/E_rois.json` | 由丙產生，需確認座標語意 |
-| G input example | `integration/artifacts-local/G_queries.json` | 由甲產生，需確認 attribute vocabulary |
-| H expected output | `integration/artifacts-local/H_matches.json` | 每筆 match 同時保留 query、diagnosis、ROI provenance |
+| E input example | `integration/artifacts-local/cases/case-001/E_rois.json` | 由丙產生，需確認座標語意 |
+| G input example | `integration/artifacts-local/cases/case-001/G_queries.json` | 由甲產生，需確認 attribute vocabulary |
+| H expected output | `integration/artifacts-local/cases/case-001/H_matches.json` | 保留完整 metadata case，填入 visualAttrs 與丁階段 selection events |
 | E/G/H schemas | `contracts/schemas/` | 任何欄位變更先經 producer/consumer review |
 | Model checkpoint | host `/models/person-d/<model>/<revision>/` | 唯讀 mount，不放 image |
 | WSI | host `/data/wsi/...` | 依 E 的 `image_uri` 讀取，不在 E/H 搬 pixels |
@@ -33,26 +33,26 @@ G.VisualAttributeQueries ────────────────┘
 
 ### 與丙對接 E
 
-- 確認 `coordinate.level` 與 x/y/width/height 的單位。
-- 確認 container 內能解析 E 的 `image_uri`。
+- 確認 `level0_info`/`main_info` 的 xywh 與 mpp 語意。
+- 確認 container 內能解析 stain 的 `filepath`。
 - 確認 WSI mount 為 read-only。
 - 準備至少一張已知 ROI 的小型 fixture，驗證裁出的 pixels 一致。
 
 ### 與甲對接 G
 
-- 定義 `required_attributes` 使用自由文字還是 controlled vocabulary。
-- 若使用 ontology ID，應把 ID 與 display text 分開定義。
-- 定義大小寫、同義詞、否定詞及多屬性查詢的 matching 規則。
-- score 必須說明範圍與方向；H v1.0 是 0～1、越大越匹配。
+- G 的 `candidateReference` 是 controlled vocabulary，`diagnosticCriteria.visualAttrs` 是條件。
+- `Must_True`/`Must_False` 先做合法性篩選，再以 High/Low conditions 計分。
+- `criteria_status=unmapped` 不得自行猜條件，應留下 selected=false。
+- score 範圍為 0～1、越大越匹配；每個決策寫入 ROI `selection_history[]`。
 
 ## H.MatchedROIs 的 provenance
 
-每一筆 H match 至少要能回答：
+每個 ROI 的丁階段 selection event 至少要能回答：
 
 1. 它回應哪個 `dx_pair_id`？
 2. 它回應哪個 `query_id`？
-3. 使用哪個 `roi_id`/`wsi_id`？
-4. WSI 在哪個 `image_uri`，座標為何？
+3. 使用哪個 `roi_id` 與其所屬 stain？
+4. WSI 的 `filepath` 與 ROI 座標為何？
 5. 哪些 attributes 實際 match？
 6. 分數是多少，模型/元件版本是什麼？
 
@@ -61,9 +61,8 @@ G.VisualAttributeQueries ────────────────┘
 
 ## 空結果與錯誤要分開
 
-「沒有 ROI 達 threshold」是合法科學結果，H 的 `matches` 可以是空 array；「WSI 打不開」或
-「模型載入失敗」則是執行錯誤，應 non-zero exit，不能偽裝成空結果。這兩者會直接影響戊的
-判讀，因此必須清楚區分。
+「沒有 ROI 達 threshold」是合法科學結果：H 仍保留所有 E ROI，但丁階段事件皆為
+`selected=false`；「WSI 打不開」或「模型載入失敗」則是執行錯誤，應 non-zero exit。
 
 ## 交付前自己跑
 
@@ -71,8 +70,8 @@ G.VisualAttributeQueries ────────────────┘
 python3 pipeline/run_pipeline.py
 
 python3 -m components.person_d.visual_filter \
-  --input integration/artifacts-local/E_rois.json \
-  --input integration/artifacts-local/G_queries.json \
+  --input integration/artifacts-local/cases/case-001/E_rois.json \
+  --input integration/artifacts-local/cases/case-001/G_queries.json \
   --output /tmp/H_matches.json \
   --config components/person_d/configs/default.json
 
@@ -86,4 +85,3 @@ python3 -m unittest discover -s tests -v
 - 空 match 是合法 artifact；讀檔/模型錯誤是 non-zero exit。
 - CPU/GPU、batch size、VRAM、timeout 與 checkpoint revision 有記錄。
 - image 不包含 WSI、病人資料、credential 或大型 checkpoint。
-

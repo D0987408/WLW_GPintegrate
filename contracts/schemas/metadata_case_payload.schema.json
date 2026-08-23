@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "nullableString": {"type": ["string", "null"]},
+    "stringList": {"type": "array", "items": {"type": "string"}},
+    "selectionEvent": {
+      "type": "object",
+      "required": ["stage", "owner", "artifact_contract", "selected", "producer"],
+      "additionalProperties": false,
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": ["interest_pattern_extraction", "visual_attributes_matching_filter", "clee"]
+        },
+        "owner": {"type": "string", "minLength": 1},
+        "artifact_contract": {"type": "string", "minLength": 1},
+        "selected": {"type": "boolean"},
+        "producer": {"type": "string", "minLength": 1},
+        "score": {"type": "number", "minimum": 0, "maximum": 1},
+        "rank": {"type": "integer", "minimum": 1},
+        "query_id": {"type": "string", "minLength": 1},
+        "dx_pair_id": {"type": "string", "minLength": 1},
+        "criteria_status": {"type": "string", "enum": ["mapped", "unmapped"]},
+        "must_true_passed": {"type": "boolean"},
+        "must_false_passed": {"type": "boolean"},
+        "matched_attributes": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "roiInfo": {
+      "type": "object",
+      "required": ["area", "coords_seg", "cxcywh", "mpp", "roi_path", "roi_wh", "xywh"],
+      "additionalProperties": false,
+      "properties": {
+        "area": {"type": "integer", "minimum": 0},
+        "coords_seg": {"type": ["array", "null"]},
+        "cxcywh": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+        "mpp": {"type": ["number", "array"]},
+        "roi_path": {"$ref": "#/$defs/nullableString"},
+        "roi_wh": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer"}},
+        "xywh": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "integer"}}
+      }
+    },
+    "roi": {
+      "type": "object",
+      "required": [
+        "roi_id", "global_idx", "local_idx", "level0_info", "main_info", "DxPair",
+        "visualAttrs", "visualAttrs_info", "selection_history"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "roi_id": {"type": "string", "minLength": 1},
+        "global_idx": {"type": "integer", "minimum": 0},
+        "local_idx": {"type": ["integer", "null"], "minimum": 0},
+        "level0_info": {"$ref": "#/$defs/roiInfo"},
+        "main_info": {"$ref": "#/$defs/roiInfo"},
+        "DxPair": {"type": ["object", "null"]},
+        "visualAttrs": {"type": ["object", "null"]},
+        "visualAttrs_info": {"type": ["object", "null"]},
+        "selection_history": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/selectionEvent"}
+        }
+      }
+    },
+    "stain": {
+      "type": "object",
+      "required": [
+        "stain_id", "stain_type", "filename", "filepath", "memo", "roi_num", "roi_list"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "stain_id": {"type": "string", "minLength": 1},
+        "stain_type": {"type": "string", "minLength": 1},
+        "filename": {"type": "string", "minLength": 1},
+        "filepath": {"type": "string", "minLength": 1},
+        "filepath_pseMsk": {"type": "string", "minLength": 1},
+        "memo": {"type": "string"},
+        "roi_num": {"type": "integer", "minimum": 0},
+        "roi_list": {"type": "array", "items": {"$ref": "#/$defs/roi"}}
+      }
+    },
+    "block": {
+      "type": "object",
+      "required": ["block_id", "stains", "memo"],
+      "additionalProperties": false,
+      "properties": {
+        "block_id": {"type": "string"},
+        "stains": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/stain"}},
+        "memo": {"type": "string"}
+      }
+    },
+    "diagnosticCriteria": {
+      "type": "object",
+      "required": [
+        "version", "type", "includeReferences", "typeLevel_idx", "DxItem", "DxResult",
+        "attrConditions", "optionTypes", "visualAttrs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {"const": "1.2.1"},
+        "type": {"const": "diagnosticCriteria"},
+        "includeReferences": {"$ref": "#/$defs/stringList"},
+        "typeLevel_idx": {"type": "integer", "minimum": 0},
+        "DxItem": {"type": "string", "minLength": 1},
+        "DxResult": {"type": "string", "minLength": 1},
+        "attrConditions": {"$ref": "#/$defs/stringList"},
+        "optionTypes": {"$ref": "#/$defs/stringList"},
+        "visualAttrs": {"type": "object"}
+      }
+    },
+    "visualAttrQuery": {
+      "type": "object",
+      "required": [
+        "query_id", "dx_pair_id", "text", "criteria_status", "diagnosticCriteria",
+        "mapping_source", "chunk_ids"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "query_id": {"type": "string", "minLength": 1},
+        "dx_pair_id": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "criteria_status": {"type": "string", "enum": ["mapped", "unmapped"]},
+        "diagnosticCriteria": {"type": ["object", "null"]},
+        "mapping_source": {"type": "string", "minLength": 1},
+        "chunk_ids": {"$ref": "#/$defs/stringList"}
+      }
+    },
+    "dxItem": {
+      "type": "object",
+      "required": [
+        "dx_pair_id", "source_report_id", "DxResultCls", "DxResultTxt", "DxResultRawTxt",
+        "referenceBlock", "referenceType", "referenceWSI", "appear_reportTypes",
+        "optionTypes", "has_numericalData"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "dx_pair_id": {"type": "string", "minLength": 1},
+        "source_report_id": {"type": "string", "minLength": 1},
+        "DxResultCls": {"type": ["string", "array"]},
+        "DxResultTxt": {"type": "string"},
+        "DxResultRawTxt": {"$ref": "#/$defs/nullableString"},
+        "referenceBlock": {"type": ["array", "null"], "items": {"type": "string"}},
+        "referenceType": {"$ref": "#/$defs/stringList"},
+        "referenceWSI": {"$ref": "#/$defs/stringList"},
+        "appear_reportTypes": {"$ref": "#/$defs/stringList"},
+        "optionTypes": {"type": "string", "minLength": 1},
+        "has_numericalData": {"type": "boolean"},
+        "visualAttrQueries": {"type": "array", "items": {"$ref": "#/$defs/visualAttrQuery"}}
+      }
+    },
+    "structuredReport": {
+      "type": "object",
+      "required": ["reportType", "reportSubTypes", "DxItems"],
+      "additionalProperties": false,
+      "properties": {
+        "reportType": {"type": ["string", "null"]},
+        "reportSubTypes": {"type": ["array", "null"], "items": {"type": "string"}},
+        "DxItems": {"type": "object", "additionalProperties": {"$ref": "#/$defs/dxItem"}}
+      }
+    },
+    "case": {
+      "type": "object",
+      "required": [
+        "sample_idx", "case_id", "hospital", "patient_info", "date", "source", "organ",
+        "report_raw_content", "structured_report", "tissue_blocks", "memo"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sample_idx": {"type": "integer", "minimum": 0},
+        "case_id": {"type": "string", "minLength": 1},
+        "hospital": {"type": "string", "minLength": 1},
+        "patient_info": {"type": "object"},
+        "date": {"type": "string"},
+        "source": {"type": "object"},
+        "organ": {"type": "string", "minLength": 1},
+        "report_raw_content": {"type": "string"},
+        "structured_report": {"$ref": "#/$defs/structuredReport"},
+        "tissue_blocks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/block"}},
+        "memo": {"type": "string"}
+      }
+    },
+    "metadataPayload": {
+      "type": "object",
+      "required": ["data_mode", "DxItem_list", "case_list"],
+      "additionalProperties": false,
+      "properties": {
+        "data_mode": {"type": "string", "enum": ["inference", "ground_truth", "evaluation"]},
+        "DxItem_list": {"$ref": "#/$defs/stringList"},
+        "candidateReference": {"type": "object"},
+        "reference_versions": {"type": "object"},
+        "case_list": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/case"}
+        }
+      }
+    }
+  }
+}

@@ -18,9 +18,9 @@ SCHEMA_DIR = ROOT / "schemas"
 
 CONTRACT_SCHEMAS = {
     "A.Literature": "A_literature.schema.json",
-    "B.Report": "B_report.schema.json",
-    "C.WSI": "C_wsi.schema.json",
+    "B.ReportTables": "B_report_tables.schema.json",
     "D.DxPairs": "D_dx_pairs.schema.json",
+    "D.DxPairsIndex": "D_dx_pairs_index.schema.json",
     "E.ROIs": "E_rois.schema.json",
     "F.Chunks": "F_chunks.schema.json",
     "G.VisualAttributeQueries": "G_visual_attribute_queries.schema.json",
@@ -51,7 +51,9 @@ def _typename(value: Any) -> str:
     return type(value).__name__
 
 
-def _is_type(value: Any, expected: str) -> bool:
+def _is_type(value: Any, expected: str | list[str]) -> bool:
+    if isinstance(expected, list):
+        return any(_is_type(value, item) for item in expected)
     if expected == "object":
         return isinstance(value, dict)
     if expected == "array":
@@ -69,7 +71,50 @@ def _is_type(value: Any, expected: str) -> bool:
     raise ContractError(f"Unsupported schema type in demo validator: {expected}")
 
 
-def _validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
+def _resolve_pointer(document: dict[str, Any], pointer: str) -> dict[str, Any]:
+    current: Any = document
+    if pointer:
+        for raw_part in pointer.lstrip("/").split("/"):
+            part = raw_part.replace("~1", "/").replace("~0", "~")
+            current = current[part]
+    if not isinstance(current, dict):
+        raise ContractError(f"Schema reference does not resolve to an object: #{pointer}")
+    return current
+
+
+def _validate(
+    value: Any,
+    schema: dict[str, Any],
+    path: str = "$",
+    *,
+    root_schema: dict[str, Any] | None = None,
+    schema_directory: Path = SCHEMA_DIR,
+) -> None:
+    if root_schema is None:
+        root_schema = schema
+
+    if "$ref" in schema:
+        reference = schema["$ref"]
+        filename, _, pointer = reference.partition("#")
+        if filename:
+            referenced_path = schema_directory / filename
+            referenced_root = json.loads(referenced_path.read_text(encoding="utf-8"))
+            _validate(
+                value,
+                _resolve_pointer(referenced_root, pointer),
+                path,
+                root_schema=referenced_root,
+                schema_directory=referenced_path.parent,
+            )
+        else:
+            _validate(
+                value,
+                _resolve_pointer(root_schema, pointer),
+                path,
+                root_schema=root_schema,
+                schema_directory=schema_directory,
+            )
+        return
     if "const" in schema and value != schema["const"]:
         raise ContractError(f"{path}: expected constant {schema['const']!r}, got {value!r}")
 
@@ -85,21 +130,44 @@ def _validate(value: Any, schema: dict[str, Any], path: str = "$") -> None:
         for key in schema.get("required", []):
             if key not in value:
                 raise ContractError(f"{path}: missing required property {key!r}")
-        if schema.get("additionalProperties") is False:
+        additional = schema.get("additionalProperties")
+        if additional is False:
             extras = set(value) - set(properties)
             if extras:
                 raise ContractError(f"{path}: unexpected properties {sorted(extras)!r}")
         for key, child in value.items():
             if key in properties:
-                _validate(child, properties[key], f"{path}.{key}")
+                _validate(
+                    child,
+                    properties[key],
+                    f"{path}.{key}",
+                    root_schema=root_schema,
+                    schema_directory=schema_directory,
+                )
+            elif isinstance(additional, dict):
+                _validate(
+                    child,
+                    additional,
+                    f"{path}.{key}",
+                    root_schema=root_schema,
+                    schema_directory=schema_directory,
+                )
 
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
             raise ContractError(f"{path}: expected at least {schema['minItems']} items")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ContractError(f"{path}: expected at most {schema['maxItems']} items")
         item_schema = schema.get("items")
         if item_schema:
             for index, item in enumerate(value):
-                _validate(item, item_schema, f"{path}[{index}]")
+                _validate(
+                    item,
+                    item_schema,
+                    f"{path}[{index}]",
+                    root_schema=root_schema,
+                    schema_directory=schema_directory,
+                )
 
     if isinstance(value, str) and "minLength" in schema:
         if len(value) < schema["minLength"]:
@@ -123,7 +191,7 @@ def validate_artifact(artifact: dict[str, Any], expected_contract: str | None = 
     except KeyError as exc:
         raise ContractError(f"$: unknown contract {contract!r}") from exc
     schema = json.loads((SCHEMA_DIR / schema_file).read_text(encoding="utf-8"))
-    _validate(artifact, schema)
+    _validate(artifact, schema, root_schema=schema)
 
 
 def load_inputs(paths: Iterable[str | Path], required_contracts: Iterable[str]) -> dict[str, dict[str, Any]]:

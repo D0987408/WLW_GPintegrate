@@ -5,24 +5,25 @@
 丙負責從 WSI 找出值得後續分析的 ROI：
 
 ```text
-C.WSI reference ──> interest_pattern ──> E.ROIs references
+D.DxPairs (`tissue_blocks[].stains[]`) ──> interest_pattern ──> E.ROIs
 ```
 
-C/E 交換的是 metadata 與位置，不是把 WSI/ROI pixels 放進 JSON。真實程式應依 `image_uri`
-開啟 mounted WSI，再輸出 ROI ID、座標與 resolution。
+D 只傳遞 WSI references，不把 WSI/ROI pixels 放進 JSON。丙必須遍歷 stains，依每個
+`filepath` 開啟 mounted WSI，再將 ROI 加到同一個 stain 的 `roi_list[]`，保留
+`level0_info`、`main_info` 並追加 `interest_pattern_extraction` selection event。
 
 ## 需要準備的東西與放置位置
 
 | 要準備的項目 | 放置位置 | 說明 |
 |---|---|---|
-| Interest pattern 實作 | `components/person_c/interest_pattern.py` | 讀 C、寫 E；保留統一 CLI |
+| Interest pattern 實作 | `components/person_c/interest_pattern.py` | 讀 D、寫 E；保留統一 CLI |
 | Python dependencies | `components/person_c/requirements.txt` | 放 Python binding、torch/vision 等直接依賴並固定版本 |
 | OS/OpenSlide dependencies | `components/person_c/Dockerfile` | `apt` library、CUDA base 等不應寫進 requirements |
 | 預設 config | `components/person_c/configs/default.json` | ROI size、threshold、level/magnification 等 |
 | Runtime/model manifest | `components/person_c/component.yaml` | GPU/VRAM、RAM、model revision、timeout |
-| C fixture | `integration/fixtures/input/C_wsi.json` | demo URI 不需要真的存在；正式 smoke fixture 應另備小圖 |
-| E expected output | `integration/artifacts-local/E_rois.json` | 可直接看到 URI+coordinate 的交換方式 |
-| C/E schemas | `contracts/schemas/C_*.json`、`E_*.json` | 座標語意要由全組共同鎖定 |
+| D fixture/artifact | `integration/artifacts-local/cases/case-001/D_dx_pairs.json` | 由甲產生，`stains[].filepath` 為丙的 WSI 入口 |
+| E expected output | `integration/artifacts-local/cases/case-001/E_rois.json` | 可直接看到各 stain 下的 ROI metadata |
+| D/E schemas | `contracts/schemas/D_*.json`、`E_*.json` | WSI reference 與座標語意要由全組共同鎖定 |
 | Model checkpoint | host `/models/person-c/<model>/<revision>/` | 唯讀 mount；config 記 revision/hash |
 | 真實 WSI | host `/data/wsi/...` | 唯讀 mount 到 container 的穩定位置，例如 `/data` |
 
@@ -38,7 +39,7 @@ C/E 交換的是 metadata 與位置，不是把 WSI/ROI pixels 放進 JSON。真
 - `magnification` 如何推導；未知值如何表示。
 - ROI 是否允許重疊，以及相同 ROI 的 stable ID 如何產生。
 
-目前 schema 使用 `coordinate.level` 明示 level。正式版建議把上述規則寫入 C/E schema 的
+目前 schema 使用 `level0_info` 與 `main_info` 分開表達原始與工作解析度。正式版建議把上述規則寫入 D/E schema 的
 `description`，並準備一張已知座標的小型測試影像做 round-trip test。
 
 ## WSI 與 ROI pixels 怎麼處理
@@ -52,10 +53,10 @@ E.json = {"image": "很長的 base64..."}
 應做：
 
 ```text
-E.json = image_uri + wsi_id + roi_id + coordinate + resolution
+E.json = stains[].filepath + roi_list[].level0_info + roi_list[].main_info
 ```
 
-丁收到 E 後，用同一個 mounted `image_uri` 讀出 pixels。若跨機器執行，`image_uri` 應是兩邊
+丁收到 E 後，用同一個 mounted `filepath` 讀出 pixels。若跨機器執行，`filepath` 應是兩邊
 都能解析的 object storage URI 或標準 mount path，而不是丙個人電腦上的絕對路徑。
 
 ## 套件與 CUDA 的分工
@@ -73,7 +74,7 @@ smoke test。
 
 ```bash
 python3 -m components.person_c.interest_pattern \
-  --input integration/fixtures/input/C_wsi.json \
+  --input integration/artifacts-local/cases/case-001/D_dx_pairs.json \
   --output /tmp/E_rois.json \
   --config components/person_c/configs/default.json
 
@@ -83,9 +84,8 @@ python3 -m unittest discover -s tests -v
 
 ## 完成定義
 
-- C→E 通過 contract validation。
-- E 不包含 pixels，且每個 ROI 都有 stable `roi_id`、`wsi_id`、URI、座標、level、mpp。
+- D→E 通過 contract validation，且 E 保留 D 中每一張 WSI reference。
+- E 不包含 pixels，且每個 ROI 都有 stable `roi_id`、座標、mpp 與丙階段 selection event。
 - 丁能使用 canonical E 讀出完全相同的 ROI 範圍。
 - 缺檔、WSI 損壞、座標越界、GPU OOM 有明確錯誤與 non-zero exit code。
 - image 不包含 WSI、病人資料或大型 checkpoint。
-

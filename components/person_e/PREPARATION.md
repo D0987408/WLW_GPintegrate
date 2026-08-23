@@ -12,7 +12,7 @@ H.MatchedROIs ─────────┘                  │
 ```
 
 DRGVLM 不是戊的 CLEE component，也不是核心 DAG 的最後一步。它只是拿 I 做實驗的方法之一；
-未來換成其他 VLM、人工閱片或統計分析時，核心 A～I pipeline 不應因此改動。
+未來換成其他 VLM、人工閱片或統計分析時，核心 A、B、D～I pipeline 不應因此改動。
 
 ## 需要準備的東西與放置位置
 
@@ -23,9 +23,9 @@ DRGVLM 不是戊的 CLEE component，也不是核心 DAG 的最後一步。它�
 | OS/CUDA dependencies | `components/person_e/Dockerfile` | 若需要 GPU/CUDA，需改 base image 並記錄相容性 |
 | 預設 config | `components/person_e/configs/default.json` | threshold、aggregation、fallback、model revision |
 | Runtime/model manifest | `components/person_e/component.yaml` | Python、CPU/RAM/GPU、timeout、entrypoint |
-| D input example | `integration/artifacts-local/D_dx_pairs.json` | 由甲產生 |
-| H input example | `integration/artifacts-local/H_matches.json` | 由丁產生；可能為空 matches |
-| 最終 expected output | `integration/artifacts-local/I_selected_rois.json` | CLEE 選出的 ROI references 與 provenance |
+| D input example | `integration/artifacts-local/cases/case-001/D_dx_pairs.json` | 由甲產生 |
+| H input example | `integration/artifacts-local/cases/case-001/H_matches.json` | 由丁產生；完整保留 ROI 並標記 matching 結果 |
+| 最終 expected output | `integration/artifacts-local/cases/case-001/I_selected_rois.json` | 完整 metadata case 與 CLEE selection events |
 | D/H/I schemas | `contracts/schemas/` | I 是核心最終 contract |
 | Model checkpoint | host `/models/person-e/<model>/<revision>/` | 唯讀 mount；不放 image |
 | DRGVLM 程式與環境 | `evaluation/drgvlm/` | 與 person_e image/environment 分離 |
@@ -36,21 +36,22 @@ DRGVLM 不是戊的 CLEE component，也不是核心 DAG 的最後一步。它�
 只能使用 stable ID join：
 
 ```text
-D.dx_pair_id == H.dx_pair_id
+D.structured_report.DxItems.*.dx_pair_id == H ROI event.dx_pair_id
+D.structured_report.DxItems.*.referenceWSI contains ROI 所屬 stain_id
 ```
 
-不可假設 `D.dx_pairs[0]` 對應 `H.matches[0]`。H 可能：
+不可假設 array index 能表達對應關係。H 可能：
 
 - 同一個 diagnosis 對應多個 ROI。
 - 某個 diagnosis 沒有 ROI。
 - matching 排序因模型版本改變。
 
-I 應保留 `match_id`、`query_id`、`roi_id`、score、WSI URI、座標及解析度，讓 DRGVLM 或其他
-consumer 能重建同一個 ROI，也讓 error analysis 一路追回 D/H。
+I 保留 H 的完整 metadata shell，並在每個 ROI 的 `selection_history[]` 追加 CLEE 的
+selected/rank/score/query/dx linkage，讓 consumer 能重建同一個 ROI並一路追回 D/H。
 
 ## 要先定義的科學語意
 
-- H 沒有 match 時，I 應是空 `selected_rois`，還是要輸出 rejection record？
+- H 沒有 selected ROI 時，I 仍保留 ROI 並追加 `selected=false` rejection event。
 - 多 ROI 如何篩選與排序？threshold、top-k 或 learned CLEE score？
 - `clee_score` 是否 calibration 過？能不能跨版本比較？
 - I 除 authoritative WSI reference 外，是否也需要 optional materialized crop URI？
@@ -63,7 +64,7 @@ consumer 能重建同一個 ROI，也讓 error analysis 一路追回 D/H。
 I 的最低必要內容是：
 
 ```text
-selection_id + case_id + dx_pair_id + roi_id + image_uri + coordinate + resolution
+case_id + dx_pair_id + query_id + roi_id + stain.filepath + level0_info + selection_history
 ```
 
 由 DRGVLM 按座標讀取 pixels。若 CLEE 已產生 dynamic-MPP PNG，可在 I 提供 `roi_image_uri` 作
@@ -76,8 +77,8 @@ model weight、config 與 metrics 放 `evaluation/drgvlm/` 及 `/runs/<run_id>/e
 python3 pipeline/run_pipeline.py
 
 python3 -m components.person_e.clee \
-  --input integration/artifacts-local/D_dx_pairs.json \
-  --input integration/artifacts-local/H_matches.json \
+  --input integration/artifacts-local/cases/case-001/D_dx_pairs.json \
+  --input integration/artifacts-local/cases/case-001/H_matches.json \
   --output /tmp/I_selected_rois.json \
   --config components/person_e/configs/default.json
 

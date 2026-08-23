@@ -1,8 +1,8 @@
 name: clee
 owner: person_E
-version: 0.1.0
-inputs: [D.DxPairs@1.0, H.MatchedROIs@1.0]
-outputs: [I.CLEESelectedROIs@1.0]
+version: 0.3.0
+inputs: [D.DxPairs@2.0, H.MatchedROIs@2.0]
+outputs: [I.CLEESelectedROIs@2.0]
 runtime:
   python: "3.12"
   gpu: false

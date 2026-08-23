@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "B.ReportTables v1.0",
+  "type": "object",
+  "required": ["contract", "schema_version", "artifact_id", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": {"const": "B.ReportTables"},
+    "schema_version": {"const": "1.0"},
+    "artifact_id": {"type": "string", "minLength": 1},
+    "payload": {
+      "type": "object",
+      "required": ["tables"],
+      "additionalProperties": false,
+      "properties": {
+        "tables": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["table_idx", "table_type", "table_path"],
+            "additionalProperties": false,
+            "properties": {
+              "table_idx": {"type": "integer", "minimum": 0},
+              "table_type": {"type": "string", "enum": ["VGHTC2024", "CGMH2019"]},
+              "table_path": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  }
+}

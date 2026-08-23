@@ -1,8 +1,8 @@
 name: person_a_report_and_query
 owner: person_A
-version: 0.1.0
-inputs: [B.Report@1.0, F.Chunks@1.0]
-outputs: [D.DxPairs@1.0, G.VisualAttributeQueries@1.0]
+version: 0.3.0
+inputs: [B.ReportTables@1.0, D.DxPairs@2.0, F.Chunks@1.0]
+outputs: [D.DxPairsIndex@1.0, D.DxPairs@2.0, G.VisualAttributeQueries@2.0]
 runtime:
   python: "3.12"
   gpu: false
