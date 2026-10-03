@@ -23,7 +23,195 @@ Canonical schemas：
 - `contracts/schemas/I_clee_selected_rois.schema.json`
 - `contracts/schemas/metadata_case_payload.schema.json`
 
-## 2. 打包準備
+## 2. 交換 JSON 結構示例
+
+以下 `<...>` 是文件省略標記，正式 D/H/I fixture 必須補齊 canonical metadata fields。戊以
+`case_id + dx_pair_id + stain_id + roi_id` 串接，不得依陣列順序配對。
+
+### First input：`[D] D.DxPairs@2.0`
+
+```json
+{
+  "contract": "D.DxPairs",
+  "schema_version": "2.0",
+  "artifact_id": "D-case-001",
+  "case_id": "case-001",
+  "producer": "person-a/report-decompose:<version>",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "case_list": [
+      {
+        "case_id": "case-001",
+        "structured_report": {
+          "DxItems": {
+            "Histologic_Type": {
+              "dx_pair_id": "case-001-dx-001",
+              "DxResultCls": "<case result>",
+              "referenceWSI": ["case-001-he"],
+              "<其餘 DxItem fields>": "見 metadata schema"
+            }
+          }
+        },
+        "<其餘 metadata-shaped case fields>": "見 metadata schema"
+      }
+    ]
+  }
+}
+```
+
+### Second input：`[H] H.MatchedROIs@2.0`
+
+```json
+{
+  "contract": "H.MatchedROIs",
+  "schema_version": "2.0",
+  "artifact_id": "H-case-001",
+  "case_id": "case-001",
+  "producer": "person-d/visual-filter:<version>",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "case_list": [
+      {
+        "case_id": "case-001",
+        "structured_report": {"<same DxItems as D>": "..."},
+        "tissue_blocks": [
+          {
+            "block_id": "A",
+            "stains": [
+              {
+                "stain_id": "case-001-he",
+                "roi_num": 1,
+                "roi_list": [
+                  {
+                    "roi_id": "roi-001",
+                    "level0_info": {"<ROI geometry>": "..."},
+                    "main_info": {"roi_path": null, "<其餘 ROI geometry>": "..."},
+                    "selection_history": [
+                      "<person C event>",
+                      {
+                        "stage": "visual_attributes_matching_filter",
+                        "owner": "person_D",
+                        "artifact_contract": "H.MatchedROIs",
+                        "action": "legality_evaluated",
+                        "status": "selected",
+                        "selected": true,
+                        "reason": "visual_attributes_match",
+                        "producer": "person-d/visual-filter:<version>",
+                        "dx_pair_id": "case-001-dx-001",
+                        "query_id": "query-001"
+                      }
+                    ],
+                    "<其餘 ROI fields>": "見 metadata schema"
+                  }
+                ],
+                "<其餘 stain fields>": "見 metadata schema"
+              }
+            ],
+            "memo": ""
+          }
+        ],
+        "<其餘 case fields>": "見 metadata schema"
+      }
+    ]
+  }
+}
+```
+
+### Output：`[I] I.CLEESelectedROIs@2.0`
+
+```json
+{
+  "contract": "I.CLEESelectedROIs",
+  "schema_version": "2.0",
+  "artifact_id": "I-case-001",
+  "case_id": "case-001",
+  "producer": "person-e/clee:1.0.0",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "reference_versions": {
+      "clee_inference": {
+        "backend": "native",
+        "<checkpoint/threshold provenance>": "見 canonical output"
+      }
+    },
+    "case_list": [
+      {
+        "case_id": "case-001",
+        "structured_report": {"<same DxItems as D/H>": "..."},
+        "tissue_blocks": [
+          {
+            "block_id": "A",
+            "stains": [
+              {
+                "stain_id": "case-001-he",
+                "roi_num": 1,
+                "roi_list": [
+                  {
+                    "roi_id": "roi-001",
+                    "pseudo_DxPair": {
+                      "0": {
+                        "Histologic_Type": {
+                          "chunk_idx": 0,
+                          "assigned": "<class>",
+                          "importance": 0.82,
+                          "assigned_as_ref": true,
+                          "candidate@top3AUC": {"<class>": 0.8},
+                          "candidate@ALL": {"<class>": 0.8}
+                        }
+                      },
+                      "finalResult": {
+                        "Histologic_Type": {
+                          "chunk_idx": 0,
+                          "assigned": "<class>",
+                          "importance": 0.82,
+                          "assigned_as_ref": true,
+                          "candidate@top3AUC": {"<class>": 0.8},
+                          "candidate@ALL": {"<class>": 0.8}
+                        }
+                      }
+                    },
+                    "selection_history": [
+                      "<unchanged person C event>",
+                      "<unchanged person D event>",
+                      {
+                        "stage": "clee",
+                        "owner": "person_E",
+                        "artifact_contract": "I.CLEESelectedROIs",
+                        "action": "evidence_evaluated",
+                        "status": "selected",
+                        "selected": true,
+                        "reason": "case_importance_threshold_met",
+                        "producer": "person-e/clee:1.0.0",
+                        "backend": "native",
+                        "dx_pair_id": "case-001-dx-001",
+                        "threshold": 0.7,
+                        "comparison": ">=",
+                        "score": 0.82
+                      }
+                    ],
+                    "<其餘 ROI geometry/visual fields>": "完整沿用 H"
+                  }
+                ],
+                "<其餘 stain fields>": "完整沿用 H"
+              }
+            ],
+            "memo": ""
+          }
+        ],
+        "<其餘 case fields>": "完整沿用 H"
+      }
+    ]
+  }
+}
+```
+
+若 H 沒有 eligible ROI，I 仍保留 ROI，但 CLEE event 使用 `action=inference_skipped`、
+`status=skipped`，且不得加入 `pseudo_DxPair`。
+
+## 3. 打包準備
 
 ```text
 WLW_GPintegrate/components/person_e/       # CLEE adapter、native backend、環境與 configs
@@ -41,7 +229,7 @@ run/cache/person_e/                         # external-command/native 暫存
   SHA-256、license 與 mount path。
 - D/H/I、ROI crop、backend 暫存與 log 一律位於 sibling `run/`。
 
-## 3. Unified CLI
+## 4. Unified CLI
 
 容器介面：
 
@@ -67,7 +255,7 @@ python -m components.person_e.clee \
 checkpoint/threshold epoch 不相容、CUDA 不可用、backend coverage 不完整或輸出違反 schema 時必須
 non-zero exit，不得寫出部分 I。
 
-## 4. Dockerfile／requirements.txt
+## 5. Dockerfile／requirements.txt
 
 目前 component manifest 的正式需求為：
 
@@ -91,7 +279,7 @@ docker build --no-cache \
 clean-machine 測試需包含 fixture CPU path 與 native GPU path。Docker build 不得下載私有模型或 checkpoint；
 執行時以唯讀 `/reference` mount 提供。
 
-## 5. Canonical examples
+## 6. Canonical examples
 
 至少交付兩組：
 
@@ -114,13 +302,13 @@ fixture expected output 必須 byte-stable。native smoke 可因硬體數值誤�
 semantics 與 score 容許誤差，但需記錄 GPU/CUDA/framework。範例至少覆蓋 selected、rejected、
 upstream skipped、空 eligible set 與多 DxItem 合併。
 
-## 6. README 必填資訊
+## 7. README 必填資訊
 
 列出 component/version、D/H/I schema、MedGemma 與 CLEE checkpoint revision、embedding／threshold bundle、
 Python/PyTorch/Transformers/CUDA、GPU 數量、最低 VRAM、CPU fixture 支援、資產 logical path 與 SHA-256、
 label-space/threshold authority、chunk 行為、CLI、Docker build/run、canonical example、錯誤條件與限制。
 
-## 7. 提交檢查
+## 8. 提交檢查
 
 - [ ] I 通過 schema 與 selection semantics，H ROI 全數保留。
 - [ ] fixture、空 eligible、multi-DxItem、native GPU smoke 與錯誤路徑皆通過。

@@ -27,7 +27,163 @@ Canonical schemas：
 - `contracts/schemas/F_chunks.schema.json`
 - `contracts/schemas/G_visual_attribute_queries.schema.json`
 
-## 2. 打包準備
+## 2. 交換 JSON 結構示例
+
+以下片段用來說明元件之間的交換層級；`<...>` 是文件省略標記，不是可直接送入 runtime 的值。
+正式 canonical example 必須補齊 schema 的所有 required fields，且不得保留省略標記。
+
+### Report Decompose input：`CaseListInput@1.0`
+
+```json
+{
+  "DxItem_list": ["Histologic_Type"],
+  "case_list": [
+    {
+      "sample_idx": 0,
+      "case_id": "case-001",
+      "hospital": "EXAMPLE",
+      "patient_info": {},
+      "date": "",
+      "source": {"fixture": "synthetic"},
+      "organ": "Breast",
+      "report_raw_content": "<synthetic report text>",
+      "tissue_blocks": [
+        {
+          "block_id": "A",
+          "stains": [
+            {
+              "stain_id": "case-001-he",
+              "stain_type": "HE",
+              "filename": "case-001-he.svs",
+              "filepath": "/data/case-001-he.svs",
+              "memo": ""
+            }
+          ],
+          "memo": ""
+        }
+      ],
+      "memo": ""
+    }
+  ]
+}
+```
+
+### Report Decompose output：`[D] D.DxPairs@2.0`
+
+```json
+{
+  "contract": "D.DxPairs",
+  "schema_version": "2.0",
+  "artifact_id": "D-case-001",
+  "case_id": "case-001",
+  "producer": "person-a/report-decompose:<version>",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "reference_versions": {},
+    "case_list": [
+      {
+        "case_id": "case-001",
+        "report_raw_content": "<same source report>",
+        "structured_report": {
+          "reportType": "<type or null>",
+          "reportSubTypes": [],
+          "DxItems": {
+            "Histologic_Type": {
+              "dx_pair_id": "case-001-dx-001",
+              "source_report_id": "case-001-report",
+              "DxResultCls": "<result class>",
+              "DxResultTxt": "<normalized result text>",
+              "DxResultRawTxt": "<source evidence or null>",
+              "referenceBlock": ["A"],
+              "referenceType": ["HE"],
+              "referenceWSI": ["case-001-he"],
+              "appear_reportTypes": ["<report type>"],
+              "optionTypes": "categorical",
+              "has_numericalData": false
+            }
+          }
+        },
+        "tissue_blocks": ["<metadata-shaped block/stain；roi_list initially empty>"],
+        "<其餘 case metadata>": "見 metadata_case_payload.schema.json"
+      }
+    ]
+  }
+}
+```
+
+### Query Generation second input：`[F] F.Chunks@2.0`
+
+```json
+{
+  "contract": "F.Chunks",
+  "schema_version": "2.0",
+  "artifact_id": "F-case-001",
+  "case_id": "case-001",
+  "producer": "person-b/knowledge-retrieval:<version>",
+  "payload": {
+    "corpus_id": "corpus-v1",
+    "knowledge_base": {"<manifest fields>": "見 F_chunks.schema.json"},
+    "chunks": [
+      {
+        "chunk_id": "chunk-001",
+        "dx_pair_id": "case-001-dx-001",
+        "literature_id": "lit-001",
+        "section_id": "sec-001",
+        "text": "<retrieved evidence>",
+        "retrieval_rank": 1,
+        "relevance_score": 0.9,
+        "<其餘 provenance/score fields>": "見 F_chunks.schema.json"
+      }
+    ]
+  }
+}
+```
+
+### Query Generation output：`[G] G.VisualAttributeQueries@2.0`
+
+```json
+{
+  "contract": "G.VisualAttributeQueries",
+  "schema_version": "2.0",
+  "artifact_id": "G-case-001",
+  "case_id": "case-001",
+  "producer": "person-a/query-generation:<version>",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "case_list": [
+      {
+        "case_id": "case-001",
+        "structured_report": {
+          "DxItems": {
+            "Histologic_Type": {
+              "dx_pair_id": "case-001-dx-001",
+              "visualAttrQueries": [
+                {
+                  "query_id": "query-001",
+                  "dx_pair_id": "case-001-dx-001",
+                  "text": "<visual attribute question>",
+                  "criteria_status": "mapped",
+                  "diagnosticCriteria": {"<criteria fields>": "見 metadata schema"},
+                  "mapping_source": "<reference version>",
+                  "chunk_ids": ["chunk-001"]
+                }
+              ],
+              "<其餘 DxItem fields>": "沿用 D"
+            }
+          },
+          "<其餘 structured report/case fields>": "沿用 D"
+        }
+      }
+    ]
+  }
+}
+```
+
+交換時以 `case_id`、`dx_pair_id`、`chunk_id` 與 `query_id` 串接，不能依陣列位置配對。
+
+## 3. 打包準備
 
 ```text
 WLW_GPintegrate/components/person_a/       # 程式、Dockerfile、requirements、文件、非敏感 config
@@ -43,7 +199,7 @@ run/output/                                # D、G、暫存與測試產物
 - 外部資產須在 `external-assets.yaml` 列出名稱、revision、SHA-256、授權與預期 mount path。
 - runtime 只寫入 sibling `run/`；不得在 component 或 `reference/` 下產生 cache。
 
-## 3. Unified CLI
+## 4. Unified CLI
 
 容器介面：
 
@@ -78,7 +234,7 @@ python -m components.person_a.query_generation \
 錯誤 input、未知 schema version、case 不一致、reference 缺失或模型錯誤必須非零結束，且不可寫出
 部分 D/G。
 
-## 4. Dockerfile／requirements.txt
+## 5. Dockerfile／requirements.txt
 
 目前 stub 使用 Python 3.12、CPU 與 standard library。正式交付必須更新 `component.yaml`、Dockerfile、
 requirements 與 README，使其共同描述實際 Python、NLP/LLM framework、CPU/GPU 與 RAM/VRAM 需求。
@@ -92,7 +248,7 @@ docker build --no-cache \
 在 clean machine 執行 D 與 G 兩個 entrypoint；不得因工作站已安裝套件或存在未宣告的 reference file
 而成功。若使用 GPU，必須另驗證 CUDA image、driver、framework 與最低 VRAM。
 
-## 5. Canonical examples
+## 6. Canonical examples
 
 至少交付兩組：
 
@@ -114,13 +270,13 @@ components/person_a/examples/
 範例不得包含 PHI、院端原始報告或私有 mapping；使用合成內容並確保 expected output 可重現且通過
 canonical schema。另至少加入一個 invalid input，驗證元件會 non-zero fail。
 
-## 6. README 必填資訊
+## 7. README 必填資訊
 
 甲的 `README.md` 必須列出 component version、D/G contract version、報告／query 模型名稱與 revision、
 Python/framework 版本、GPU/VRAM 或 CPU/RAM、checkpoint/reference logical path 與 SHA-256、完整 CLI、
 Docker build/run、canonical example、限制與已知失敗條件。若完全不使用模型，需明確寫「無模型」。
 
-## 7. 提交檢查
+## 8. 提交檢查
 
 - [ ] D、G 皆通過 schema，且 D/F/G case identity 一致。
 - [ ] `component.yaml`、image tag、artifact `producer` 與 README version 一致。

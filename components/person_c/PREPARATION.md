@@ -21,7 +21,137 @@ Canonical schemas：
 - `contracts/schemas/E_rois.schema.json`
 - `contracts/schemas/metadata_case_payload.schema.json`
 
-## 2. 打包準備
+## 2. 交換 JSON 結構示例
+
+以下 `<...>` 為文件省略標記。Canonical fixture 必須補齊 CaseList／metadata schema 的 required fields，
+並使用可實際重建的 ROI 座標。
+
+### Input：`CaseListInput@1.0`
+
+```json
+{
+  "DxItem_list": ["Histologic_Type"],
+  "case_list": [
+    {
+      "sample_idx": 0,
+      "case_id": "case-001",
+      "hospital": "EXAMPLE",
+      "patient_info": {},
+      "date": "",
+      "source": {"fixture": "synthetic"},
+      "organ": "Breast",
+      "report_raw_content": "Synthetic report text.",
+      "tissue_blocks": [
+        {
+          "block_id": "A",
+          "stains": [
+            {
+              "stain_id": "case-001-he",
+              "stain_type": "HE",
+              "filename": "case-001-he.svs",
+              "filepath": "/data/case-001-he.svs",
+              "memo": ""
+            }
+          ],
+          "memo": ""
+        }
+      ],
+      "memo": ""
+    }
+  ]
+}
+```
+
+### Output：`[E] E.ROIs@2.0`
+
+```json
+{
+  "contract": "E.ROIs",
+  "schema_version": "2.0",
+  "artifact_id": "E-case-001",
+  "case_id": "case-001",
+  "producer": "person-c/interest-pattern:<version>",
+  "payload": {
+    "data_mode": "inference",
+    "DxItem_list": ["Histologic_Type"],
+    "reference_versions": {},
+    "case_list": [
+      {
+        "sample_idx": 0,
+        "case_id": "case-001",
+        "hospital": "EXAMPLE",
+        "patient_info": {},
+        "date": "",
+        "source": {"fixture": "synthetic"},
+        "organ": "Breast",
+        "report_raw_content": "Synthetic report text.",
+        "tissue_blocks": [
+          {
+            "block_id": "A",
+            "stains": [
+              {
+                "stain_id": "case-001-he",
+                "stain_type": "HE",
+                "filename": "case-001-he.svs",
+                "filepath": "/data/case-001-he.svs",
+                "memo": "",
+                "roi_num": 1,
+                "roi_list": [
+                  {
+                    "roi_id": "roi-001",
+                    "global_idx": 0,
+                    "local_idx": 0,
+                    "level0_info": {
+                      "area": 65536,
+                      "coords_seg": null,
+                      "cxcywh": [256, 256, 256, 256],
+                      "mpp": 0.25,
+                      "roi_path": null,
+                      "roi_wh": [256, 256],
+                      "xywh": [128, 128, 256, 256]
+                    },
+                    "main_info": {
+                      "area": 16384,
+                      "coords_seg": null,
+                      "cxcywh": [128, 128, 128, 128],
+                      "mpp": 0.5,
+                      "roi_path": null,
+                      "roi_wh": [128, 128],
+                      "xywh": [64, 64, 128, 128]
+                    },
+                    "DxPair": null,
+                    "visualAttrs": null,
+                    "visualAttrs_info": null,
+                    "selection_history": [
+                      {
+                        "stage": "interest_pattern_extraction",
+                        "owner": "person_C",
+                        "artifact_contract": "E.ROIs",
+                        "action": "candidate_generated",
+                        "status": "selected",
+                        "selected": true,
+                        "reason": "interest_pattern_candidate_generated",
+                        "producer": "person-c/interest-pattern:<version>"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "memo": ""
+          }
+        ],
+        "memo": ""
+      }
+    ]
+  }
+}
+```
+
+上下游以 `case_id`、`block_id`、`stain_id` 與 `roi_id` 維持身分；丁使用 `filepath + level0_info`
+重建 pixels，不應依 `global_idx` 猜測影像來源。
+
+## 3. 打包準備
 
 ```text
 WLW_GPintegrate/components/person_c/       # 程式、環境與非敏感設定
@@ -38,7 +168,7 @@ run/cache/person_c/                         # 可刪除 cache
 - 任何 external asset 均附 revision、SHA-256、license、預期 mount path，不得在程式內硬編碼工作站路徑。
 - 暫存檔與 crop 必須可清理、不可覆寫 input WSI。
 
-## 3. Unified CLI
+## 4. Unified CLI
 
 容器介面：
 
@@ -61,7 +191,7 @@ python -m components.person_c.interest_pattern \
 CaseList 非單案、WSI 不可讀、MPP 缺失、checkpoint/hash 錯誤、CUDA 不可用或模型失敗時，必須 non-zero
 exit 且不得留下半套 E 或未完成 crop。
 
-## 4. Dockerfile／requirements.txt
+## 5. Dockerfile／requirements.txt
 
 目前 stub 使用 Python 3.12、CPU 與 standard library。正式版本必須固定 WSI system library、Python
 binding、影像處理 framework、模型 framework 與 CUDA runtime，並在 clean machine 驗證：
@@ -75,7 +205,7 @@ docker build --no-cache \
 至少測試一次 CPU 或明確拒絕 CPU，並在目標 GPU 測量最低 VRAM、batch size、RAM、暫存磁碟與單張 WSI
 timeout。Docker build 不得下載私有 checkpoint 或把 WSI 複製進 image。
 
-## 5. Canonical example
+## 6. Canonical example
 
 至少交付：
 
@@ -92,13 +222,13 @@ components/person_c/examples/
 接近影像邊界的座標。若真實模型輸出非決定性，需固定 seed 或定義座標／score 容許誤差。另測試缺檔與
 錯誤 MPP 會 non-zero fail。
 
-## 6. README 必填資訊
+## 7. README 必填資訊
 
 列出 component version、E schema version、模型名稱／architecture／revision、Python、WSI library、
 framework、CUDA、GPU 數量、最低 VRAM、CPU fallback、checkpoint logical path 與 SHA-256、支援格式、
 MPP／座標規則、CLI、Docker build/run、canonical example、效能與限制。沒有模型時需明示「無模型」。
 
-## 7. 提交檢查
+## 8. 提交檢查
 
 - [ ] E 與每個 ROI 都通過 canonical schema 及 selection semantics。
 - [ ] 座標／MPP round-trip 已和丁的讀取方式做整合測試。
